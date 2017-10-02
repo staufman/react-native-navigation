@@ -21,10 +21,12 @@ import com.reactnativenavigation.params.ScreenParams;
 import com.reactnativenavigation.params.SlidingOverlayParams;
 import com.reactnativenavigation.params.TitleBarButtonParams;
 import com.reactnativenavigation.params.TitleBarLeftButtonParams;
+import com.reactnativenavigation.params.parsers.ModalAnimationFactory;
+import com.reactnativenavigation.screens.NavigationType;
 
 import java.util.List;
 
-public class Modal extends Dialog implements DialogInterface.OnDismissListener, ScreenStackContainer {
+class Modal extends Dialog implements DialogInterface.OnDismissListener, ScreenStackContainer {
 
     private final AppCompatActivity activity;
     private final OnModalDismissedListener onModalDismissedListener;
@@ -95,17 +97,21 @@ public class Modal extends Dialog implements DialogInterface.OnDismissListener, 
         layout.selectTopTabByTabIndex(screenInstanceId, index);
     }
 
+    String getCurrentlyVisibleScreenId() {
+        return layout.getCurrentlyVisibleScreenId();
+    }
+
     interface OnModalDismissedListener {
         void onModalDismissed(Modal modal);
     }
 
-    public Modal(AppCompatActivity activity, OnModalDismissedListener onModalDismissedListener, ScreenParams screenParams) {
+    Modal(AppCompatActivity activity, OnModalDismissedListener onModalDismissedListener, ScreenParams screenParams) {
         super(activity, R.style.Modal);
         this.activity = activity;
         this.onModalDismissedListener = onModalDismissedListener;
         this.screenParams = screenParams;
         createContent();
-        setAnimation();
+        setAnimation(screenParams);
     }
 
     public AppCompatActivity getActivity() {
@@ -123,18 +129,19 @@ public class Modal extends Dialog implements DialogInterface.OnDismissListener, 
     }
 
     private void setWindowFlags() {
-        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        Window window = getWindow();
+        if (window == null) return;
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+            window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
         }
     }
 
-    private void setAnimation() {
-        if (!screenParams.animateScreenTransitions) {
-            if (getWindow() != null) {
-                getWindow().setWindowAnimations(android.R.style.Animation);
-            }
-        }
+    private void setAnimation(ScreenParams screenParams) {
+        if (getWindow() == null) return;
+        final WindowManager.LayoutParams attributes = getWindow().getAttributes();
+        attributes.windowAnimations = ModalAnimationFactory.create(screenParams);
+        getWindow().setAttributes(attributes);
     }
 
     @Override
@@ -174,11 +181,21 @@ public class Modal extends Dialog implements DialogInterface.OnDismissListener, 
         }
     }
 
+    void dismiss(ScreenParams params) {
+        setAnimation(params);
+        NavigationApplication.instance.runOnMainThread(new Runnable() {
+            @Override
+            public void run() {
+                dismiss();
+            }
+        });
+    }
+
     @Override
     public void dismiss() {
         if (!isDestroyed) {
-            NavigationApplication.instance.getEventEmitter().sendScreenChangedEvent("willDisappear", layout.getCurrentScreen().getNavigatorEventId());
-            NavigationApplication.instance.getEventEmitter().sendScreenChangedEvent("didDisappear", layout.getCurrentScreen().getNavigatorEventId());
+            NavigationApplication.instance.getEventEmitter().sendWillDisappearEvent(layout.getCurrentScreen().getScreenParams(), NavigationType.DismissModal);
+            NavigationApplication.instance.getEventEmitter().sendDidDisappearEvent(layout.getCurrentScreen().getScreenParams(), NavigationType.DismissModal);
         }
         super.dismiss();
     }
